@@ -1,66 +1,122 @@
-## Foundry
+# Foundry Upgradeable Smart Contract
 
-**Foundry is a blazing fast, portable and modular toolkit for Ethereum application development written in Rust.**
+A [Foundry](https://book.getfoundry.sh/) project demonstrating **upgradeable smart contracts** on Ethereum — how to deploy logic behind a proxy so contract behavior can be changed after deployment without losing state or the contract's address.
 
-Foundry consists of:
+## Why upgradeable contracts?
 
-- **Forge**: Ethereum testing framework (like Truffle, Hardhat and DappTools).
-- **Cast**: Swiss army knife for interacting with EVM smart contracts, sending transactions and getting chain data.
-- **Anvil**: Local Ethereum node, akin to Ganache, Hardhat Network.
-- **Chisel**: Fast, utilitarian, and verbose solidity REPL.
+Normal smart contracts are immutable once deployed — any bug or missing feature is permanent. The proxy pattern solves this by splitting a contract in two:
 
-## Documentation
+- **Proxy contract** — holds the storage/state and the address users actually interact with. It never changes.
+- **Implementation (logic) contract** — holds the executable code. The proxy `delegatecall`s into it, so the implementation's code runs in the proxy's storage context.
 
-https://book.getfoundry.sh/
+To "upgrade," you deploy a new implementation contract and point the proxy at it. Users keep the same address and state; only the logic behind it changes.
 
-## Usage
+This repo works with that pattern (e.g. via OpenZeppelin's UUPS or Transparent proxy standards) — check `src/` for the exact implementation contracts and proxy setup used here.
+
+> This README describes the general upgradeable-proxy pattern this project is built around. Contract names/details may vary — see `src/` and `script/` for specifics.
+
+## Project structure
+
+```
+.
+├── src/                 # Solidity contracts (implementation contract(s), proxy setup)
+├── script/              # Foundry deployment / upgrade scripts
+├── test/                # Foundry tests
+├── lib/                 # Dependencies (installed via git submodules / forge install)
+├── .github/workflows/   # CI configuration
+├── foundry.toml         # Foundry project configuration
+└── foundry.lock         # Locked dependency versions
+```
+
+## Requirements
+
+- [Foundry](https://book.getfoundry.sh/getting-started/installation) (`forge`, `cast`, `anvil`, `chisel`)
+- [Git](https://git-scm.com/)
+
+## Getting started
+
+Clone the repo and install dependencies:
+
+```bash
+git clone https://github.com/sanjaysugunan/foundry-upgradable-smart-contract
+cd foundry-upgradable-smart-contract
+forge install
+```
 
 ### Build
 
-```shell
-$ forge build
+```bash
+forge build
 ```
 
 ### Test
 
-```shell
-$ forge test
+```bash
+forge test
+```
+
+Run with higher verbosity for debugging:
+
+```bash
+forge test -vvvv
 ```
 
 ### Format
 
-```shell
-$ forge fmt
+```bash
+forge fmt
 ```
 
-### Gas Snapshots
+### Gas snapshots
 
-```shell
-$ forge snapshot
+```bash
+forge snapshot
 ```
 
-### Anvil
+### Local node (Anvil)
 
-```shell
-$ anvil
+```bash
+anvil
 ```
 
-### Deploy
+### Deploy / upgrade
 
-```shell
-$ forge script script/Counter.s.sol:CounterScript --rpc-url <your_rpc_url> --private-key <your_private_key>
+Deployment and upgrade logic live in `script/`. Run a script against a local or remote RPC:
+
+```bash
+forge script script/<YourScript>.s.sol:<YourScript> --rpc-url <your_rpc_url> --private-key <your_private_key> --broadcast
 ```
+
+Replace `<YourScript>` with the actual script contract name in `script/` (e.g. a deploy script and a separate upgrade script are common in this pattern).
 
 ### Cast
 
-```shell
-$ cast <subcommand>
+```bash
+cast <subcommand>
 ```
 
 ### Help
 
-```shell
-$ forge --help
-$ anvil --help
-$ cast --help
+```bash
+forge --help
+anvil --help
+cast --help
 ```
+
+## Typical upgrade flow
+
+1. Deploy the initial implementation contract and a proxy pointing at it.
+2. Interact with the contract through the **proxy address** only — never the implementation address directly.
+3. When logic needs to change, write and deploy a new implementation contract (keeping storage layout compatible with the previous version).
+4. Call the proxy's upgrade function (as the authorized owner/admin) to point it at the new implementation.
+5. Verify existing state is preserved and new logic is now active — all through the same proxy address.
+
+## Important gotchas with upgradeable contracts
+
+- **Storage layout**: new implementation versions must preserve the existing storage slot order — don't reorder, remove, or change the type of existing state variables. Only append new variables at the end.
+- **Constructors are not used for initialization**: implementation contracts typically use an `initialize()` function (with an initializer guard) instead of a constructor, since constructors don't run in the proxy's storage context.
+- **Access control on upgrades**: only an authorized address should be able to trigger an upgrade — check the tests in `test/` for how this is enforced here.
+
+## License
+
+No license file is currently included in this repository. Add one (e.g. MIT) if you intend for others to reuse this code.
